@@ -2,7 +2,7 @@
 #include <EEPROM.h>
 #include "HX711.h"
 
-#define numOfButtons        0
+#define numOfButtons        10
 #define numOfHatSwitches    0
 #define enableX             false
 #define enableY             false
@@ -17,6 +17,11 @@
 #define enableAccelerator   true
 #define enableBrake         true
 #define enableSteering      false
+
+byte previousButtonStates[numOfButtons];
+byte currentButtonStates[numOfButtons];
+byte buttonPins[numOfButtons] = { 0, 35, 17, 18, 19, 23, 25, 26, 27, 32 };
+byte physicalButtons[numOfButtons] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
 
 #define GAS_PIN 4
 #define BRAKE_PIN 23
@@ -86,6 +91,17 @@ void setup()
   bleGamepad.setAutoReport(false);
   bleGamepad.setControllerType(CONTROLLER_TYPE_GAMEPAD);  //CONTROLLER_TYPE_JOYSTICK, CONTROLLER_TYPE_GAMEPAD (DEFAULT), CONTROLLER_TYPE_MULTI_AXIS
   bleGamepad.begin(numOfButtons,numOfHatSwitches,enableX,enableY,enableZ,enableRZ,enableRX,enableRY,enableSlider1,enableSlider2,enableRudder,enableThrottle,enableAccelerator,enableBrake,enableSteering);  
+
+  // BUTTONS
+
+  for (byte currentPinIndex = 0 ; currentPinIndex < numOfButtons ; currentPinIndex++)
+  {
+    pinMode(buttonPins[currentPinIndex], INPUT_PULLUP);
+    previousButtonStates[currentPinIndex] = HIGH;
+    currentButtonStates[currentPinIndex] =  HIGH;
+  }
+
+  // PEDALS
 
   // Para poderem ser usados como ponteiros genéricos no parametro de processPedal()
   Pedal* gas = new Pedal();
@@ -176,7 +192,10 @@ bool processPedal(struct Pedal* pedal, bool debug = false) {
 void loop()
 {
   if (bleGamepad.isConnected()) 
-  {      
+  {    
+
+    // PEDALS
+      
     if (processPedal(brakePedal)) {        
       bleGamepad.setBrake(brakePedal->axis);
       bleGamepad.sendReport();
@@ -194,7 +213,30 @@ void loop()
         Serial.println("Loadcell tared");
       }
     }
+
+    // BUTTONS
+
+    for (byte currentIndex = 0 ; currentIndex < numOfButtons ; currentIndex++) {
+      currentButtonStates[currentIndex]  = digitalRead(buttonPins[currentIndex]);
+
+      if (currentButtonStates[currentIndex] != previousButtonStates[currentIndex]) {
+        if(currentButtonStates[currentIndex] == LOW) {
+          bleGamepad.press(physicalButtons[currentIndex]);
+        }
+        else {
+          bleGamepad.release(physicalButtons[currentIndex]);
+        }
+      } 
+    }
+    
+    if (currentButtonStates != previousButtonStates) {
+      for (byte currentIndex = 0 ; currentIndex < numOfButtons ; currentIndex++) {
+        previousButtonStates[currentIndex] = currentButtonStates[currentIndex]; 
+      }
+      
+      bleGamepad.sendReport();
+    }
   }  
 
-  delay(100);
+  delay(20);
 } 
