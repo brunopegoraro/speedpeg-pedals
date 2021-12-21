@@ -27,8 +27,10 @@ byte physicalButtons[numOfButtons] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
 #define BRAKE_PIN 23
 #define CLUTCH_PIN 30
 #define TARE_LOADCELL_PIN 19
+#define LED_POWER_PIN 17
+#define LED_STATUS_PIN 16
 
-BleGamepad bleGamepad("RacerPeg Driving Controller", "RacerPeg", 100);
+BleGamepad bleGamepad("SpeedPeg Driving Controller", "SpeedPeg", 100);
 
 #define MIN_PEDAL_INIT 500000
 #define RANGE_LIMIT 4095 // 12-bit range
@@ -87,6 +89,11 @@ void saveToEEPROM()
 void setup()
 {
   Serial.begin(115200);
+
+  pinMode(LED_POWER_PIN, OUTPUT);
+  pinMode(LED_STATUS_PIN, OUTPUT); 
+
+  digitalWrite(LED_POWER_PIN, HIGH);
 
   bleGamepad.setAutoReport(false);
   bleGamepad.setControllerType(CONTROLLER_TYPE_GAMEPAD);  //CONTROLLER_TYPE_JOYSTICK, CONTROLLER_TYPE_GAMEPAD (DEFAULT), CONTROLLER_TYPE_MULTI_AXIS
@@ -191,8 +198,11 @@ bool processPedal(struct Pedal* pedal, bool debug = false) {
 
 void loop()
 {
+  
   if (bleGamepad.isConnected()) 
-  {    
+  {  
+
+    digitalWrite(LED_STATUS_PIN, HIGH);
 
     // PEDALS
       
@@ -239,4 +249,5 @@ void loop()
   }  
 
   delay(20);
+  digitalWrite(LED_STATUS_PIN, LOW);
 } 
