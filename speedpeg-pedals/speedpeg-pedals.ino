@@ -25,15 +25,14 @@ byte physicalButtons[numOfButtons] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
 
 #define GAS_PIN 4
 #define BRAKE_PIN 23
-#define CLUTCH_PIN 30
+#define CLUTCH_PIN 0
 #define TARE_LOADCELL_PIN 19
 #define LED_POWER_PIN 17
 #define LED_STATUS_PIN 16
 
 BleGamepad bleGamepad("SpeedPeg Driving Controller", "SpeedPeg", 100);
 
-#define MIN_PEDAL_INIT 500000
-#define RANGE_LIMIT 4095 // 12-bit range
+#define BITS_12_RANGE_LIMIT 4095 // 12-bit range
 
 struct Pedal {
   byte pin;
@@ -115,12 +114,24 @@ void setup()
   Pedal* brake = new Pedal();
   Pedal* clutch = new Pedal();
 
-  gas->pin = GAS_PIN; // definir o pino certo no futuro
+  gas->pin = GAS_PIN; 
   brake->pin = BRAKE_PIN;
-  clutch->pin = CLUTCH_PIN; // definir o pino certo no futuro
+  clutch->pin = CLUTCH_PIN; 
   
-  gas->min = brake->min = clutch->min = MIN_PEDAL_INIT;
-  gas->max = brake->max = clutch->max = 0;
+  gas->min = -32767;
+  gas->max = 32767;
+
+  clutch->min = -32767;
+  clutch->max = 32767;
+
+  // Min e max são automaticamente descobertos ao pressionar a loadcell pela primeira vez
+  brake->min = 500000;
+  brake->max = 0;
+
+  //Set accelerator and brake to min
+  bleGamepad.setAccelerator(gas->min);
+  bleGamepad.setBrake(brake->min);
+  bleGamepad.setThrottle(clutch->min);
 
   brake->useLoadcell = true;
   brake->loadcell.begin(brake->pin /* dout pin */, 22 /* sck pin */);
@@ -158,35 +169,47 @@ bool processPedal(struct Pedal* pedal, bool debug = false) {
 
       bool needSalveToEeprom = false;
 
-      float oldValue;
-      if (pedal->cur >= 0) {
-        oldValue = pedal->min;
-        pedal->min = min(pedal->cur, pedal->min);
-        needSalveToEeprom = pedal->min < oldValue; 
-      }
+      if (pedal->useLoadcell) {
 
-      oldValue = pedal->max;
-      pedal->max = max(pedal->cur, pedal->max);
-      needSalveToEeprom = needSalveToEeprom || (pedal->max > oldValue); 
+        float oldValue;
+        if (pedal->cur >= 0) {
+          oldValue = pedal->min;
+          pedal->min = min(pedal->cur, pedal->min);
+          needSalveToEeprom = pedal->min < oldValue; 
+        }
   
-      pedal->axis = map(pedal->cur, pedal->min, pedal->max, 0, RANGE_LIMIT);
-      pedal->axis = pedal->axis < 0 ? 0 : pedal->axis;
+        oldValue = pedal->max;
+        pedal->max = max(pedal->cur, pedal->max);
+        needSalveToEeprom = needSalveToEeprom || (pedal->max > oldValue); 
+    
+        pedal->axis = map(pedal->cur, pedal->min, pedal->max, 0, BITS_12_RANGE_LIMIT);
+        pedal->axis = pedal->axis < 0 ? 0 : pedal->axis;
+      }
+      else {
+        pedal->axis = map(pedal->cur, 0, BITS_12_RANGE_LIMIT, -32767, 32767);  
+      }
 
       if (needSalveToEeprom) 
         saveToEEPROM();  
 
       if (debug) {
-        Serial.print("Mapped Value: ");
+        Serial.print("pedal->pin: ");
+        Serial.print(pedal->pin);
+        
+        Serial.print(" | pedal->axis: ");
         Serial.print(pedal->axis);
     
-        Serial.print(" | Cur Cell Value: ");
+        Serial.print(" | pedal->cur: ");
         Serial.print(pedal->cur);
     
-        Serial.print(" | Min Load Cell Value: ");
+        Serial.print(" | pedal->min: ");
         Serial.print(pedal->min);
     
-        Serial.print(" | Max Load Cell Value: ");
+        Serial.print(" | pedal->max: ");
         Serial.print(pedal->max);
+
+        Serial.print(" | pedal->useLoadcell: ");
+        Serial.print(pedal->useLoadcell);
   
         Serial.print(" | Need Salve to EEPROM: ");
         Serial.println(needSalveToEeprom);
@@ -198,22 +221,22 @@ bool processPedal(struct Pedal* pedal, bool debug = false) {
 
 void loop()
 {
+  bool status_changed = false;
   
   if (bleGamepad.isConnected()) 
-  {  
-
-    digitalWrite(LED_STATUS_PIN, HIGH);
-
+  { 
     // PEDALS
       
     if (processPedal(brakePedal)) {        
       bleGamepad.setBrake(brakePedal->axis);
       bleGamepad.sendReport();
+      status_changed = true;
     }
 
     if (processPedal(gasPedal, true)) {        
-      bleGamepad.setAccelerator(gasPedal->axis);
+      bleGamepad.setThrottle(gasPedal->axis);
       bleGamepad.sendReport();
+      status_changed = true;
     }
 
     int buttonTareLoadcellState = digitalRead(TARE_LOADCELL_PIN);
@@ -232,9 +255,11 @@ void loop()
       if (currentButtonStates[currentIndex] != previousButtonStates[currentIndex]) {
         if(currentButtonStates[currentIndex] == LOW) {
           bleGamepad.press(physicalButtons[currentIndex]);
+          status_changed = true;
         }
         else {
           bleGamepad.release(physicalButtons[currentIndex]);
+          status_changed = true;
         }
       } 
     }
@@ -248,6 +273,11 @@ void loop()
     }
   }  
 
+  if (status_changed) {
+    digitalWrite(LED_STATUS_PIN, HIGH);
+  }
+
   delay(20);
+  
   digitalWrite(LED_STATUS_PIN, LOW);
 } 
